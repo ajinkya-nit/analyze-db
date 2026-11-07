@@ -1,11 +1,16 @@
 import * as projectRepository from '../repositories/project.repository.js';
-import * as userRepository from '../repositories/user.repository.js';
 import ApiError from '../utils/ApiError.js';
 
-export async function createProject(userId, { name, description }) {
+export async function createProject(userId, data) {
   if (!userId) {
-    throw new ApiError(400, 'User ID is required.');
+    throw new ApiError(401, 'Authentication required.');
   }
+
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new ApiError(400, 'Invalid project data.');
+  }
+
+  const { name, description } = data;
 
   if (typeof name !== 'string' || !name.trim()) {
     throw new ApiError(400, 'Project name is required.');
@@ -20,20 +25,24 @@ export async function createProject(userId, { name, description }) {
     description !== null &&
     typeof description !== 'string'
   ) {
-    throw new ApiError(400, 'Project description must be a string.');
-  }
-
-  const user = await userRepository.findUserById(userId);
-
-  if (!user) {
-    throw new ApiError(404, 'User not found.');
+    throw new ApiError(400, 'Project description must be a string or null.');
   }
 
   return projectRepository.createProject({
     userId,
     name: name.trim(),
-    description: description?.trim() || null,
+    description: typeof description === 'string'
+      ? description.trim() || null
+      : null,
   });
+}
+
+export async function getUserProjects(userId) {
+  if (!userId) {
+    throw new ApiError(401, 'Authentication required.');
+  }
+
+  return projectRepository.findProjectsByUserId(userId);
 }
 
 export async function getProjectById(projectId, userId) {
@@ -53,20 +62,6 @@ export async function getProjectById(projectId, userId) {
   return project;
 }
 
-export async function getUserProjects(userId) {
-  if (!userId) {
-    throw new ApiError(400, 'User ID is required.');
-  }
-
-  const user = await userRepository.findUserById(userId);
-
-  if (!user) {
-    throw new ApiError(404, 'User not found.');
-  }
-
-  return projectRepository.findProjectsByUserId(userId);
-}
-
 export async function updateProject(projectId, userId, updates) {
   if (!projectId || !userId) {
     throw new ApiError(400, 'Project ID and user ID are required.');
@@ -77,13 +72,13 @@ export async function updateProject(projectId, userId, updates) {
   }
 
   const allowedFields = ['name', 'description'];
+  const suppliedFields = Object.keys(updates);
 
-  const hasAllowedField = allowedFields.some(
-    (field) => Object.hasOwn(updates, field)
-  );
-
-  if (!hasAllowedField) {
-    throw new ApiError(400, 'No valid project fields were provided.');
+  if (
+    suppliedFields.length === 0 ||
+    suppliedFields.some((field) => !allowedFields.includes(field))
+  ) {
+    throw new ApiError(400, 'Only name and description can be updated.');
   }
 
   if (Object.hasOwn(updates, 'name')) {
@@ -92,26 +87,35 @@ export async function updateProject(projectId, userId, updates) {
       !updates.name.trim() ||
       updates.name.trim().length > 150
     ) {
-      throw new ApiError(400, 'Project name must be between 1 and 150 characters.');
+      throw new ApiError(
+        400,
+        'Project name must be between 1 and 150 characters.'
+      );
     }
   }
 
+  if (
+    Object.hasOwn(updates, 'description') &&
+    updates.description !== null &&
+    typeof updates.description !== 'string'
+  ) {
+    throw new ApiError(400, 'Description must be a string or null.');
+  }
+
+  const cleanUpdates = {};
+
+  if (Object.hasOwn(updates, 'name')) {
+    cleanUpdates.name = updates.name.trim();
+  }
+
   if (Object.hasOwn(updates, 'description')) {
-    if (
-      updates.description !== null &&
-      typeof updates.description !== 'string'
-    ) {
-      throw new ApiError(400, 'Project description must be a string or null.');
-    }
+    cleanUpdates.description = updates.description?.trim() || null;
   }
 
   const project = await projectRepository.updateProject(
     projectId,
     userId,
-    {
-      name: updates.name?.trim(),
-      description: updates.description?.trim() ?? updates.description,
-    }
+    cleanUpdates
   );
 
   if (!project) {

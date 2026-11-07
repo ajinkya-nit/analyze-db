@@ -9,6 +9,8 @@ import { errorHandler, notFoundHandler } from './middleware/error.middleware.js'
 import healthRoutes from './routes/health.routes.js';
 import { requestLogger } from './middleware/request-logger.middleware.js';
 import databaseRoutes from './routes/database.routes.js';
+import authRoutes from './routes/auth.routes.js';
+import projectRoutes from './routes/project.routes.js';
 
 const app = express();
 
@@ -28,6 +30,8 @@ app.use(express.json({ limit: '1mb' }));
 
 app.use('/api', healthRoutes);
 app.use('/api', databaseRoutes);
+app.use('/api', authRoutes);
+app.use('/api', projectRoutes);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
