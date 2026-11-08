@@ -12,11 +12,13 @@ import {
   verifyDatabaseConnection,
 } from '../services/database-connection.service.js';
 
+import { requireAuth } from '../middleware/auth.middleware.js';
+
 const router = express.Router();
 
 // POST /api/database/connections/validate
 router.post(
-  '/database/connections/validate',
+  '/database/connections/validate', requireAuth,
   validateRequest(validateDatabaseConnection),
   async (req, res) => {
     const result = await verifyDatabaseConnection(req.body);

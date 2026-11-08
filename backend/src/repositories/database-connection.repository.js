@@ -1,6 +1,21 @@
+
 import postgresPool from '../database/postgres.connection.js';
 
-// Create a database connection record.
+const SAFE_CONNECTION_COLUMNS = `
+  id,
+  project_id,
+  name,
+  engine,
+  host,
+  port,
+  database_name,
+  username,
+  connection_status,
+  last_tested_at,
+  created_at,
+  updated_at
+`;
+
 export async function createDatabaseConnection({
   projectId,
   name,
@@ -9,6 +24,7 @@ export async function createDatabaseConnection({
   port,
   databaseName,
   username,
+  passwordEncrypted,
 }) {
   const result = await postgresPool.query(
     `INSERT INTO database_connections (
@@ -18,10 +34,11 @@ export async function createDatabaseConnection({
       host,
       port,
       database_name,
-      username
+      username,
+      password_encrypted
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
-    RETURNING *`,
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    RETURNING ${SAFE_CONNECTION_COLUMNS}`,
     [
       projectId,
       name,
@@ -30,6 +47,7 @@ export async function createDatabaseConnection({
       port,
       databaseName,
       username,
+      passwordEncrypted,
     ]
   );
 
@@ -41,7 +59,7 @@ export async function findDatabaseConnectionById(
   projectId
 ) {
   const result = await postgresPool.query(
-    `SELECT *
+    `SELECT ${SAFE_CONNECTION_COLUMNS}
      FROM database_connections
      WHERE id = $1 AND project_id = $2`,
     [connectionId, projectId]
@@ -50,10 +68,9 @@ export async function findDatabaseConnectionById(
   return result.rows[0] ?? null;
 }
 
-// Get all connections belonging to a project.
 export async function findDatabaseConnectionsByProjectId(projectId) {
   const result = await postgresPool.query(
-    `SELECT *
+    `SELECT ${SAFE_CONNECTION_COLUMNS}
      FROM database_connections
      WHERE project_id = $1
      ORDER BY created_at DESC`,
@@ -62,7 +79,6 @@ export async function findDatabaseConnectionsByProjectId(projectId) {
 
   return result.rows;
 }
-
 
 export async function updateDatabaseConnection(
   connectionId,
@@ -75,25 +91,36 @@ export async function updateDatabaseConnection(
     username,
   }
 ) {
+  const values = [connectionId, projectId];
+  const setClauses = [];
+
+  const fields = {
+    name,
+    host,
+    port,
+    database_name: databaseName,
+    username,
+  };
+
+  for (const [column, value] of Object.entries(fields)) {
+    if (value !== undefined) {
+      values.push(value);
+      setClauses.push(`${column} = $${values.length}`);
+    }
+  }
+
+  if (setClauses.length === 0) {
+    return null;
+  }
+
+  setClauses.push('updated_at = NOW()');
+
   const result = await postgresPool.query(
     `UPDATE database_connections
-     SET name = COALESCE($3, name),
-         host = COALESCE($4, host),
-         port = COALESCE($5, port),
-         database_name = COALESCE($6, database_name),
-         username = COALESCE($7, username),
-         updated_at = NOW()
+     SET ${setClauses.join(', ')}
      WHERE id = $1 AND project_id = $2
-     RETURNING *`,
-    [
-      connectionId,
-      projectId,
-      name ?? null,
-      host ?? null,
-      port ?? null,
-      databaseName ?? null,
-      username ?? null,
-    ]
+     RETURNING ${SAFE_CONNECTION_COLUMNS}`,
+    values
   );
 
   return result.rows[0] ?? null;
@@ -110,7 +137,7 @@ export async function updateConnectionStatus(
          last_tested_at = NOW(),
          updated_at = NOW()
      WHERE id = $1 AND project_id = $2
-     RETURNING *`,
+     RETURNING ${SAFE_CONNECTION_COLUMNS}`,
     [connectionId, projectId, status]
   );
 

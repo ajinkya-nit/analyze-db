@@ -9,12 +9,23 @@ dotenv.config({
   path: path.resolve(currentDir, "../../../.env"),
 });
 
+
 const requiredVariables = [
   "MYSQL_HOST",
   "MYSQL_USER",
   "MYSQL_PASSWORD",
   "MYSQL_DATABASE",
+  "DB_ENCRYPTION_KEY",
 ];
+
+if (
+  !process.env.DB_ENCRYPTION_KEY ||
+  !/^[0-9a-fA-F]{64}$/.test(process.env.DB_ENCRYPTION_KEY)
+) {
+  throw new Error(
+    'DB_ENCRYPTION_KEY must be a valid 64-character hexadecimal key.'
+  );
+}
 
 for (const variable of requiredVariables) {
   if (!process.env[variable]) {
@@ -52,5 +63,8 @@ export const env = {
     user: process.env.PGUSER,
     password: process.env.PGPASSWORD,
     database: process.env.PGDATABASE,
+  },
+  security: {
+  dbEncryptionKey: process.env.DB_ENCRYPTION_KEY,
   },
 };
