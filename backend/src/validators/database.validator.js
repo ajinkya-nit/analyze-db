@@ -53,5 +53,18 @@ export function validateDatabaseConnection(req) {
     errors.push('Database name must not exceed 128 characters');
   }
 
+  
+  return errors;
+}
+
+export function validateCreateDatabaseConnection(req) {
+  const errors = validateDatabaseConnection(req);
+
+  if (!isNonEmptyString(req.body?.name)) {
+    errors.push('Connection name is required');
+  } else if (!isValidLength(req.body.name, 1, 150)) {
+    errors.push('Connection name must not exceed 150 characters');
+  }
+
   return errors;
 }

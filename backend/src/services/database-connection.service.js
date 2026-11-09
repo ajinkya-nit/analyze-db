@@ -6,6 +6,7 @@ import {
 import * as projectRepository from '../repositories/project.repository.js';
 
 import * as connectionRepository from '../repositories/database-connection.repository.js';
+
 import mysql from 'mysql2/promise';
 import ApiError from '../utils/ApiError.js';
 import logger from '../config/logger.js';
@@ -159,4 +160,116 @@ export async function deleteProjectDatabaseConnection(
   }
 
   return true;
+}
+
+export async function testSavedProjectDatabaseConnection(
+  projectId,
+  userId,
+  connectionId
+) {
+  // 1. Verify that this project belongs to the authenticated user.
+  await ensureProjectOwnership(projectId, userId);
+
+  // 2. Retrieve safe connection metadata.
+  const connection =
+    await connectionRepository.findDatabaseConnectionById(
+      connectionId,
+      projectId
+    );
+
+  if (!connection) {
+    throw new ApiError(404, 'Database connection not found.');
+  }
+
+  // 3. This implementation currently supports MySQL only.
+  if (connection.engine !== 'mysql') {
+    throw new ApiError(
+      400,
+      'Testing this database engine is not supported yet.'
+    );
+  }
+
+  // 4. Retrieve the encrypted password separately.
+  const credential =
+    await connectionRepository.findEncryptedCredential(
+      connectionId,
+      projectId
+    );
+
+  if (!credential || !credential.password_encrypted) {
+    throw new ApiError(
+      500,
+      'Saved database credentials are unavailable.'
+    );
+  }
+
+  // 5. Decrypt the password inside the backend.
+  let password;
+
+  try {
+    password = decryptCredential(credential.password_encrypted);
+  } catch {
+    logger.error(
+      { requestOperation: 'saved_database_credential_decryption' },
+      'Unable to decrypt saved database credentials'
+    );
+
+    await connectionRepository.updateConnectionStatus(
+      connectionId,
+      projectId,
+      'failed'
+    );
+
+    throw new ApiError(
+      500,
+      'Saved database credentials could not be decrypted. Check the encryption key configuration.'
+    );
+  }
+
+  // Test the external MySQL connection.
+  try {
+    const result = await verifyDatabaseConnection({
+      host: connection.host,
+      port: connection.port,
+      username: connection.username,
+      password,
+      database: connection.database_name,
+    });
+
+    // Record a successful connection test.
+    const updatedConnection =
+      await connectionRepository.updateConnectionStatus(
+        connectionId,
+        projectId,
+        'connected'
+      );
+
+    if (!updatedConnection) {
+      throw new ApiError(404, 'Database connection no longer exists.');
+    }
+
+    return {
+      ...updatedConnection,
+      testResult: result,
+    };
+  } catch (error) {
+    // Record a failed test without exposing credentials.
+    try {
+      await connectionRepository.updateConnectionStatus(
+        connectionId,
+        projectId,
+        'failed'
+      );
+    } catch {
+      logger.error(
+        { requestOperation: 'database_connection_status_update' },
+        'Unable to update database connection status'
+      );
+    }
+
+    throw error;
+  } finally {
+    // Remove the local reference to the decrypted password.
+    password = undefined;
+  }
 }

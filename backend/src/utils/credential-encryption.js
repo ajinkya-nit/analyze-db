@@ -5,6 +5,11 @@ import {
   randomBytes,
 } from 'node:crypto';
 
+import {
+  encryptCredential,
+  decryptCredential,
+} from '../utils/credential-encryption.js';
+
 import { env } from '../config/env.js';
 
 const ALGORITHM = 'aes-256-gcm';

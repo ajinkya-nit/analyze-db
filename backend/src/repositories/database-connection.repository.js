@@ -157,3 +157,40 @@ export async function deleteDatabaseConnection(
 
   return result.rowCount > 0;
 }
+
+
+export async function findDatabaseConnectionCredentialsById(
+  connectionId,
+  projectId
+) {
+  const result = await postgresPool.query(
+    `SELECT
+       id,
+       project_id,
+       engine,
+       host,
+       port,
+       database_name,
+       username,
+       password_encrypted
+     FROM database_connections
+     WHERE id = $1 AND project_id = $2`,
+    [connectionId, projectId]
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function findEncryptedCredential(
+  connectionId,
+  projectId
+) {
+  const result = await postgresPool.query(
+    `SELECT password_encrypted
+     FROM database_connections
+     WHERE id = $1 AND project_id = $2`,
+    [connectionId, projectId]
+  );
+
+  return result.rows[0] ?? null;
+}
