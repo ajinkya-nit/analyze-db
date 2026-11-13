@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.middleware.js';
 
 import {
   validateRequest,
+  validateUuidParams,
 } from '../middleware/validate.middleware.js';
 
 import {
@@ -46,6 +47,7 @@ router.post(
 // Create a connection under a project.
 router.post(
   '/projects/:projectId/connections',
+  validateUuidParams('projectId'),
   validateRequest(validateCreateDatabaseConnection),
   createConnection
 );
@@ -53,23 +55,27 @@ router.post(
 // List all connections belonging to a project.
 router.get(
   '/projects/:projectId/connections',
+  validateUuidParams('projectId'),
   getConnections
 );
 
 // Get one connection belonging to a project.
 router.get(
   '/projects/:projectId/connections/:connectionId',
+  validateUuidParams('projectId', 'connectionId'),
   getConnection
 );
 
 // Delete a connection belonging to a project.
 router.delete(
   '/projects/:projectId/connections/:connectionId',
+  validateUuidParams('projectId', 'connectionId'),
   deleteConnection
 );
 
 router.post(
   '/projects/:projectId/connections/:connectionId/test',
+  validateUuidParams('projectId', 'connectionId'),
   testSavedConnection
 );
 

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 
 import { requireAuth } from '../middleware/auth.middleware.js';
-import { validateRequest } from '../middleware/validate.middleware.js';
+import { validateRequest,validateUuidParams } from '../middleware/validate.middleware.js';
 
 import {
   validateCreateProject,
@@ -16,6 +16,7 @@ import {
   deleteProject,
 } from '../controllers/project.controller.js';
 
+
 const router = Router();
 
 router.use(requireAuth);
@@ -28,14 +29,17 @@ router.post(
 
 router.get('/projects', getUserProjects);
 
-router.get('/projects/:id', getProjectById);
+router.get('/projects/:id', validateUuidParams('id'),getProjectById);
 
 router.patch(
   '/projects/:id',
+  validateUuidParams('id'),
   validateRequest(validateUpdateProject),
   updateProject
 );
 
-router.delete('/projects/:id', deleteProject);
+router.delete('/projects/:id', 
+  validateUuidParams('id'),
+  deleteProject);
 
 export default router;

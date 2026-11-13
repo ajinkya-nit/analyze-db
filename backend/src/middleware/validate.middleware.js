@@ -1,4 +1,5 @@
 import ApiError from '../utils/ApiError.js';
+import { isValidUuid } from '../utils/validate.js';
 
 export function validateRequest(validator) {
   return (req, res, next) => {
@@ -20,4 +21,18 @@ export function validateRequest(validator) {
       next(error);
     }
   };
+}
+
+export function validateUuidParams(...paramNames) {
+  return validateRequest((req) => {
+    const errors = [];
+
+    for (const paramName of paramNames) {
+      if (!isValidUuid(req.params[paramName])) {
+        errors.push(`${paramName} must be a valid UUID.`);
+      }
+    }
+
+    return errors;
+  });
 }
