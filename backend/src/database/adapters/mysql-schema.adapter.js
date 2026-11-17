@@ -109,3 +109,110 @@ export async function discoverTableColumns(
   }));
 }
 
+/**
+ * Discover primary-key columns for a specific table.
+ *
+ * @param {object} connection - Active mysql2 promise connection.
+ * @param {string} databaseName - Customer database name.
+ * @param {string} tableName - Table name.
+ * @returns {Promise<object[]>} Primary-key metadata.
+ */
+export async function discoverPrimaryKeys(
+  connection,
+  databaseName,
+  tableName
+) {
+  if (!connection) {
+    throw new TypeError('A MySQL connection is required.');
+  }
+
+  if (
+    typeof databaseName !== 'string' ||
+    databaseName.trim().length === 0 ||
+    typeof tableName !== 'string' ||
+    tableName.trim().length === 0
+  ) {
+    throw new TypeError('Valid database and table names are required.');
+  }
+
+  const [rows] = await connection.execute(
+    `SELECT
+       COLUMN_NAME,
+       ORDINAL_POSITION
+     FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = ?
+       AND CONSTRAINT_NAME = 'PRIMARY'
+     ORDER BY ORDINAL_POSITION`,
+    [databaseName.trim(), tableName.trim()]
+  );
+
+  return rows.map((row) => ({
+    columnName: row.COLUMN_NAME,
+    position: row.ORDINAL_POSITION,
+  }));
+}
+
+
+
+/**
+ * Discover foreign-key relationships for a specific table.
+ *
+ * @param {object} connection - Active mysql2 promise connection.
+ * @param {string} databaseName - Customer database name.
+ * @param {string} tableName - Table name.
+ * @returns {Promise<object[]>} Foreign-key metadata.
+ */
+export async function discoverForeignKeys(
+  connection,
+  databaseName,
+  tableName
+) {
+  if (!connection) {
+    throw new TypeError('A MySQL connection is required.');
+  }
+
+  if (
+    typeof databaseName !== 'string' ||
+    databaseName.trim().length === 0 ||
+    typeof tableName !== 'string' ||
+    tableName.trim().length === 0
+  ) {
+    throw new TypeError('Valid database and table names are required.');
+  }
+
+  const [rows] = await connection.execute(
+    `SELECT
+       kcu.CONSTRAINT_NAME,
+       kcu.COLUMN_NAME,
+       kcu.ORDINAL_POSITION,
+       kcu.REFERENCED_TABLE_SCHEMA,
+       kcu.REFERENCED_TABLE_NAME,
+       kcu.REFERENCED_COLUMN_NAME,
+       rc.UPDATE_RULE,
+       rc.DELETE_RULE
+     FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE AS kcu
+     LEFT JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS AS rc
+       ON rc.CONSTRAINT_SCHEMA = kcu.CONSTRAINT_SCHEMA
+       AND rc.CONSTRAINT_NAME = kcu.CONSTRAINT_NAME
+       AND rc.TABLE_NAME = kcu.TABLE_NAME
+     WHERE kcu.TABLE_SCHEMA = ?
+       AND kcu.TABLE_NAME = ?
+       AND kcu.REFERENCED_TABLE_NAME IS NOT NULL
+     ORDER BY
+       kcu.CONSTRAINT_NAME,
+       kcu.ORDINAL_POSITION`,
+    [databaseName.trim(), tableName.trim()]
+  );
+
+  return rows.map((row) => ({
+    constraintName: row.CONSTRAINT_NAME,
+    columnName: row.COLUMN_NAME,
+    position: row.ORDINAL_POSITION,
+    referencedSchema: row.REFERENCED_TABLE_SCHEMA,
+    referencedTable: row.REFERENCED_TABLE_NAME,
+    referencedColumn: row.REFERENCED_COLUMN_NAME,
+    updateRule: row.UPDATE_RULE,
+    deleteRule: row.DELETE_RULE,
+  }));
+}

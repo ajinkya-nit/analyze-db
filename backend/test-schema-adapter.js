@@ -5,6 +5,8 @@ import { env } from './src/config/env.js';
 import {
   discoverSchemaObjects,
   discoverTableColumns,
+  discoverPrimaryKeys,
+  discoverForeignKeys,
 } from './src/database/adapters/mysql-schema.adapter.js';
 
 async function main() {
@@ -33,14 +35,34 @@ async function main() {
         continue;
       }
 
+      console.log(`\n========== ${object.objectName} ==========`);
+
       const columns = await discoverTableColumns(
         connection,
         env.mysql.database,
         object.objectName
       );
 
-      console.log(`\nColumns in table: ${object.objectName}`);
+      console.log('\nColumns:');
       console.table(columns);
+
+      const primaryKeys = await discoverPrimaryKeys(
+        connection,
+        env.mysql.database,
+        object.objectName
+      );
+
+      console.log('\nPrimary keys:');
+      console.table(primaryKeys);
+
+      const foreignKeys = await discoverForeignKeys(
+        connection,
+        env.mysql.database,
+        object.objectName
+      );
+
+      console.log('\nForeign keys:');
+      console.table(foreignKeys);
     }
 
   } catch (error) {
