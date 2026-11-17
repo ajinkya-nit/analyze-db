@@ -7,6 +7,7 @@ import {
   discoverTableColumns,
   discoverPrimaryKeys,
   discoverForeignKeys,
+  discoverTableIndexes,
 } from './src/database/adapters/mysql-schema.adapter.js';
 
 async function main() {
@@ -60,6 +61,20 @@ async function main() {
         env.mysql.database,
         object.objectName
       );
+
+      const indexes = await discoverTableIndexes(
+        connection,
+        env.mysql.database,
+        object.objectName
+      );
+
+      console.log('\nIndexes:');
+      console.table(indexes);
+
+      for (const index of indexes) {
+        console.log(`\nIndex: ${index.indexName}`);
+        console.table(index.columns);
+      }
 
       console.log('\nForeign keys:');
       console.table(foreignKeys);

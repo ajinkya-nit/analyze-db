@@ -216,3 +216,91 @@ export async function discoverForeignKeys(
     deleteRule: row.DELETE_RULE,
   }));
 }
+
+
+
+/**
+ * Discover all indexes belonging to a specific table.
+ *
+ * Supports:
+ * - Primary and unique indexes
+ * - Composite indexes
+ * - Prefix indexes
+ * - ASC / DESC index columns
+ * - Functional indexes (MySQL 8+)
+ *
+ * @param {object} connection - Active mysql2 promise connection.
+ * @param {string} databaseName - Customer database name.
+ * @param {string} tableName - Table name.
+ * @returns {Promise<object[]>} Discovered index metadata.
+ */
+export async function discoverTableIndexes(
+  connection,
+  databaseName,
+  tableName
+) {
+  if (!connection) {
+    throw new TypeError('A MySQL connection is required.');
+  }
+
+  if (
+    typeof databaseName !== 'string' ||
+    databaseName.trim().length === 0 ||
+    typeof tableName !== 'string' ||
+    tableName.trim().length === 0
+  ) {
+    throw new TypeError('Valid database and table names are required.');
+  }
+
+  const [rows] = await connection.execute(
+    `SELECT
+       INDEX_NAME,
+       NON_UNIQUE,
+       SEQ_IN_INDEX,
+       COLUMN_NAME,
+       COLLATION,
+       SUB_PART,
+       INDEX_TYPE,
+       COMMENT,
+       INDEX_COMMENT,
+       IS_VISIBLE,
+       EXPRESSION
+     FROM INFORMATION_SCHEMA.STATISTICS
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = ?
+     ORDER BY INDEX_NAME, SEQ_IN_INDEX`,
+    [databaseName.trim(), tableName.trim()]
+  );
+
+  const indexes = new Map();
+
+  for (const row of rows) {
+    if (!indexes.has(row.INDEX_NAME)) {
+      indexes.set(row.INDEX_NAME, {
+        indexName: row.INDEX_NAME,
+        isUnique: Number(row.NON_UNIQUE) === 0,
+        isPrimary: row.INDEX_NAME === 'PRIMARY',
+        indexType: row.INDEX_TYPE,
+        isVisible: row.IS_VISIBLE === 'YES',
+        comment: row.COMMENT || null,
+        indexComment: row.INDEX_COMMENT || null,
+        columns: [],
+      });
+    }
+
+    indexes.get(row.INDEX_NAME).columns.push({
+      columnName: row.COLUMN_NAME ?? null,
+      expression: row.EXPRESSION ?? null,
+      position: row.SEQ_IN_INDEX,
+      sortDirection:
+        row.COLLATION === 'A'
+          ? 'ASC'
+          : row.COLLATION === 'D'
+            ? 'DESC'
+            : null,
+      prefixLength: row.SUB_PART ?? null,
+    });
+  }
+
+  return Array.from(indexes.values());
+}
