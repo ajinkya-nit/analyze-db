@@ -24,6 +24,11 @@ import {
   testSavedConnection,
 } from '../controllers/database-connection.controller.js';
 
+import {
+  discoverSchema,
+  getSchema,
+} from '../controllers/schema-discovery.controller.js';
+
 const router = express.Router();
 
 // All database connection routes require authentication.
@@ -77,6 +82,20 @@ router.post(
   '/projects/:projectId/connections/:connectionId/test',
   validateUuidParams('projectId', 'connectionId'),
   testSavedConnection
+);
+
+// Discover and persist schema metadata.
+router.post(
+  '/projects/:projectId/connections/:connectionId/schema/discover',
+  validateUuidParams('projectId', 'connectionId'),
+  discoverSchema
+);
+
+// Retrieve previously discovered schema metadata.
+router.get(
+  '/projects/:projectId/connections/:connectionId/schema',
+  validateUuidParams('projectId', 'connectionId'),
+  getSchema
 );
 
 export default router;

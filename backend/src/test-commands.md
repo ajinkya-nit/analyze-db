@@ -30,5 +30,4 @@ curl -i -b cookies.txt -X PATCH \
 
 # to delete project
 
-curl -i -b cookies.txt -X DELETE \
-  http://localhost:3000/api/projects/YOUR_PROJECT_IDcurl -i http://localhost:3000/api/projects
+$projectId = Read-Host "e999f47c-92dc-4231-b9cd-c4524e5dc166"
