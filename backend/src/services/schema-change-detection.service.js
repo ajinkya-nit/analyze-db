@@ -78,6 +78,7 @@ function toStructuralSchemaObject(object) {
   const {
     columnStatistics: _columnStatistics,
     indexes = [],
+    tableDetails,
     ...metadata
   } = object.metadata;
 
@@ -86,6 +87,9 @@ function toStructuralSchemaObject(object) {
     metadata: {
       ...metadata,
       indexes: indexes.map(toStructuralIndex),
+      ...(tableDetails === undefined
+        ? {}
+        : { tableDetails: toStructuralTableDetails(tableDetails) }),
     },
   };
 }
@@ -98,6 +102,22 @@ function toStructuralIndex(index) {
       return structuralColumn;
     }),
   };
+}
+
+function toStructuralTableDetails(tableDetails) {
+  const structuralDetails = {};
+
+  for (const property of [
+    'comment',
+    'collation',
+    'createOptions',
+  ]) {
+    if (Object.hasOwn(tableDetails ?? {}, property)) {
+      structuralDetails[property] = tableDetails[property];
+    }
+  }
+
+  return structuralDetails;
 }
 
 
@@ -158,8 +178,8 @@ function compareObjectDetails(beforeObject, afterObject) {
     ),
 
     tableProperties: compareProperties(
-      beforeMetadata.tableDetails,
-      afterMetadata.tableDetails
+      toStructuralTableDetails(beforeMetadata.tableDetails),
+      toStructuralTableDetails(afterMetadata.tableDetails)
     ),
 
     viewProperties: compareProperties(
