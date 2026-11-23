@@ -145,11 +145,13 @@ export async function discoverAndSaveSchema(
     }
 
     // 8. Save only after discovery of every object succeeds.
-    const savedCount =
-      await schemaMetadataRepository.replaceSchemaMetadata(
+    const snapshot =
+      await schemaMetadataRepository.saveSchemaSnapshotAndReplaceMetadata(
         connectionId,
         discoveredMetadata
       );
+
+    const savedCount = snapshot.objectCount;
 
     logger.info(
       {
@@ -163,6 +165,8 @@ export async function discoverAndSaveSchema(
     return {
       connectionId,
       databaseName: connection.database_name,
+      snapshotId: snapshot.id,
+      snapshotNumber: Number(snapshot.snapshot_number),
       objectCount: savedCount,
       objects: discoveredMetadata.map((object) => ({
         schemaName: object.schema_name,

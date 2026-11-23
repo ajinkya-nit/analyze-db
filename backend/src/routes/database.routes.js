@@ -18,6 +18,12 @@ import {
 
 
 import {
+  getSnapshots,
+  getChanges,
+} from '../controllers/schema-history.controller.js';
+
+
+import {
   getRelationships,
   getSummary,
   getObject,
@@ -134,5 +140,23 @@ router.get(
   getObject
 );
 
+
+/**
+ * Retrieve schema snapshot history.
+ */
+router.get(
+  '/projects/:projectId/connections/:connectionId/schema/snapshots',
+  validateUuidParams('projectId', 'connectionId'),
+  getSnapshots
+);
+
+/**
+ * Compare schema snapshots.
+ */
+router.get(
+  '/projects/:projectId/connections/:connectionId/schema/changes',
+  validateUuidParams('projectId', 'connectionId'),
+  getChanges
+);
 
 export default router;
