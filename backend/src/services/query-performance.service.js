@@ -3,6 +3,11 @@ import mysql from 'mysql2/promise';
 import * as projectRepository from '../repositories/project.repository.js';
 
 import * as connectionRepository from '../repositories/database-connection.repository.js';
+import * as schemaMetadataRepository from '../repositories/schema-metadata.repository.js';
+
+import {
+  analyzeAdvancedQuery,
+} from './advanced-query-intelligence.service.js';
 
 import {
   decryptCredential,
@@ -94,6 +99,16 @@ export async function analyzeQueryPerformance(
 
     const analysis = analyzeQueryExecutionPlan(plan);
 
+    const schemaMetadata =
+      await schemaMetadataRepository.findSchemaMetadataByConnectionId(
+        connectionId
+      );
+
+    const advancedAnalysis = analyzeAdvancedQuery(
+      sql,
+      schemaMetadata
+    );
+
     logger.info(
       {
         connectionId,
@@ -109,7 +124,8 @@ export async function analyzeQueryPerformance(
       databaseName: connection.database_name,
       analysisMethod: 'EXPLAIN FORMAT=JSON',
       queryExecuted: false,
-      ...analysis,
+      executionPlan: analysis,
+      advancedIntelligence: advancedAnalysis,
     };
   } catch (error) {
     logger.warn(
