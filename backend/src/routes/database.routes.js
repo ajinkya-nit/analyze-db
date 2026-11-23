@@ -22,6 +22,9 @@ import {
   getChanges,
 } from '../controllers/schema-history.controller.js';
 
+import {
+  getIndexAnalysis,
+} from '../controllers/index-intelligence.controller.js';
 
 import {
   getRelationships,
@@ -157,6 +160,15 @@ router.get(
   '/projects/:projectId/connections/:connectionId/schema/changes',
   validateUuidParams('projectId', 'connectionId'),
   getChanges
+);
+
+/**
+ * Analyze indexes and foreign-key index coverage.
+ */
+router.get(
+  '/projects/:projectId/connections/:connectionId/schema/index-intelligence',
+  validateUuidParams('projectId', 'connectionId'),
+  getIndexAnalysis
 );
 
 export default router;
