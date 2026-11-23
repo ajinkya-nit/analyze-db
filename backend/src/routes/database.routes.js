@@ -27,6 +27,15 @@ import {
 } from '../controllers/index-intelligence.controller.js';
 
 import {
+  analyzeQuery,
+} from '../controllers/query-performance.controller.js';
+
+import {
+  validateQueryPerformanceRequest,
+} from '../validators/query-performance.validator.js';
+
+
+import {
   getRelationships,
   getSummary,
   getObject,
@@ -169,6 +178,16 @@ router.get(
   '/projects/:projectId/connections/:connectionId/schema/index-intelligence',
   validateUuidParams('projectId', 'connectionId'),
   getIndexAnalysis
+);
+
+/**
+ * Analyze a SELECT query using the MySQL execution plan.
+ */
+router.post(
+  '/projects/:projectId/connections/:connectionId/query-performance/analyze',
+  validateUuidParams('projectId', 'connectionId'),
+  validateRequest(validateQueryPerformanceRequest),
+  analyzeQuery
 );
 
 export default router;
