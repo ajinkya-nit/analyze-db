@@ -57,6 +57,33 @@ function compareCollection(beforeItems, afterItems, getKey) {
   return { added, removed, modified };
 }
 
+
+function compareProperties(before = {}, after = {}) {
+  const toItems = (value) =>
+    Object.entries(value ?? {}).map(([property, propertyValue]) => ({
+      property,
+      value: propertyValue,
+    }));
+
+  const changes = compareCollection(
+    toItems(before),
+    toItems(after),
+    (item) => item.property
+  );
+
+  return {
+    added: changes.added,
+    removed: changes.removed,
+    modified: changes.modified.map((change) => ({
+      property: change.key,
+      before: change.before.value,
+      after: change.after.value,
+    })),
+  };
+}
+
+
+
 function compareObjectDetails(beforeObject, afterObject) {
   const beforeMetadata = beforeObject.metadata ?? {};
   const afterMetadata = afterObject.metadata ?? {};
@@ -84,6 +111,23 @@ function compareObjectDetails(beforeObject, afterObject) {
       beforeMetadata.indexes ?? [],
       afterMetadata.indexes ?? [],
       (item) => item.indexName
+    ),
+
+    tableProperties: compareProperties(
+      beforeMetadata.tableDetails,
+      afterMetadata.tableDetails
+    ),
+
+    viewProperties: compareProperties(
+      beforeMetadata.viewDetails,
+      afterMetadata.viewDetails
+    ),
+
+    viewDependencies: compareCollection(
+      beforeMetadata.viewDependencies ?? [],
+      afterMetadata.viewDependencies ?? [],
+      (item) =>
+        `${item.referencedSchema}.${item.referencedObject}`
     ),
   };
 }
@@ -128,56 +172,61 @@ export function detectSchemaChanges(
     ),
   }));
 
+
   const counts = {
     addedObjects: addedObjects.length,
     removedObjects: removedObjects.length,
     modifiedObjects: modifiedObjects.length,
+
     addedColumns: 0,
     removedColumns: 0,
     modifiedColumns: 0,
+
     addedPrimaryKeys: 0,
     removedPrimaryKeys: 0,
     modifiedPrimaryKeys: 0,
+
     addedForeignKeys: 0,
     removedForeignKeys: 0,
     modifiedForeignKeys: 0,
+
     addedIndexes: 0,
     removedIndexes: 0,
     modifiedIndexes: 0,
+
+    addedTableProperties: 0,
+    removedTableProperties: 0,
+    modifiedTableProperties: 0,
+
+    addedViewProperties: 0,
+    removedViewProperties: 0,
+    modifiedViewProperties: 0,
+
+    addedViewDependencies: 0,
+    removedViewDependencies: 0,
+    modifiedViewDependencies: 0,
   };
 
   const countKeys = {
-    columns: {
-      added: 'addedColumns',
-      removed: 'removedColumns',
-      modified: 'modifiedColumns',
-    },
-    primaryKeys: {
-      added: 'addedPrimaryKeys',
-      removed: 'removedPrimaryKeys',
-      modified: 'modifiedPrimaryKeys',
-    },
-    foreignKeys: {
-      added: 'addedForeignKeys',
-      removed: 'removedForeignKeys',
-      modified: 'modifiedForeignKeys',
-    },
-    indexes: {
-      added: 'addedIndexes',
-      removed: 'removedIndexes',
-      modified: 'modifiedIndexes',
-    },
+    columns: 'Columns',
+    primaryKeys: 'PrimaryKeys',
+    foreignKeys: 'ForeignKeys',
+    indexes: 'Indexes',
+    tableProperties: 'TableProperties',
+    viewProperties: 'ViewProperties',
+    viewDependencies: 'ViewDependencies',
   };
 
   for (const object of modifiedObjects) {
     for (const [section, changes] of Object.entries(object.changes)) {
-      const keys = countKeys[section];
+      const suffix = countKeys[section];
 
-      counts[keys.added] += changes.added.length;
-      counts[keys.removed] += changes.removed.length;
-      counts[keys.modified] += changes.modified.length;
+      counts[`added${suffix}`] += changes.added.length;
+      counts[`removed${suffix}`] += changes.removed.length;
+      counts[`modified${suffix}`] += changes.modified.length;
     }
   }
+
 
   const totalChanges = Object.values(counts).reduce(
     (total, count) => total + count,

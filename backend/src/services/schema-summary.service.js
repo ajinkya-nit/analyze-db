@@ -12,16 +12,24 @@ export function buildSchemaSummary(schemaMetadata) {
   );
 
   const dataTypeDistribution = {};
+
   let totalColumns = 0;
   let totalIndexes = 0;
   let totalPrimaryKeyColumns = 0;
   let totalForeignKeyColumns = 0;
+  let totalViewDependencies = 0;
+  let totalEstimatedRows = 0;
+  let totalDataLengthBytes = 0;
+  let totalIndexLengthBytes = 0;
+
+  let tablesWithRowEstimates = 0;
 
   const tablesWithoutPrimaryKeys = [];
   const tablesWithoutForeignKeys = [];
 
   for (const object of tables) {
     const metadata = object.metadata ?? {};
+    const details = metadata.tableDetails ?? {};
 
     const columns = metadata.columns ?? [];
     const indexes = metadata.indexes ?? [];
@@ -41,6 +49,15 @@ export function buildSchemaSummary(schemaMetadata) {
       tablesWithoutForeignKeys.push(object.object_name);
     }
 
+    if (details.estimatedRows !== null &&
+        details.estimatedRows !== undefined) {
+      totalEstimatedRows += details.estimatedRows;
+      tablesWithRowEstimates++;
+    }
+
+    totalDataLengthBytes += details.dataLengthBytes ?? 0;
+    totalIndexLengthBytes += details.indexLengthBytes ?? 0;
+
     for (const column of columns) {
       const dataType = column.dataType ?? 'unknown';
 
@@ -49,23 +66,35 @@ export function buildSchemaSummary(schemaMetadata) {
     }
   }
 
-  const relationshipGraphData = schemaMetadata.flatMap((object) =>
-    (object.metadata?.foreignKeys ?? []).map((foreignKey) => ({
-      source: `${object.schema_name}.${object.object_name}`,
-      target: `${foreignKey.referencedSchema}.${foreignKey.referencedTable}`,
-      constraintName: foreignKey.constraintName,
-    }))
-  );
+  for (const view of views) {
+    totalColumns += view.metadata?.columns?.length ?? 0;
 
-  const uniqueRelationships = new Set(
-    relationshipGraphData.map((relationship) =>
-      JSON.stringify([
-        relationship.source,
-        relationship.target,
-        relationship.constraintName,
-      ])
-    )
-  );
+    totalViewDependencies +=
+      view.metadata?.viewDependencies?.length ?? 0;
+
+    for (const column of view.metadata?.columns ?? []) {
+      const dataType = column.dataType ?? 'unknown';
+
+      dataTypeDistribution[dataType] =
+        (dataTypeDistribution[dataType] ?? 0) + 1;
+    }
+  }
+
+  const relationshipKeys = new Set();
+
+  for (const object of tables) {
+    for (const foreignKey of object.metadata?.foreignKeys ?? []) {
+      relationshipKeys.add(
+        JSON.stringify([
+          object.schema_name,
+          object.object_name,
+          foreignKey.constraintName,
+          foreignKey.referencedSchema,
+          foreignKey.referencedTable,
+        ])
+      );
+    }
+  }
 
   const insights = [];
 
@@ -97,7 +126,18 @@ export function buildSchemaSummary(schemaMetadata) {
     indexCount: totalIndexes,
     primaryKeyColumnCount: totalPrimaryKeyColumns,
     foreignKeyColumnCount: totalForeignKeyColumns,
-    relationshipCount: uniqueRelationships.size,
+    relationshipCount: relationshipKeys.size,
+    viewDependencyCount: totalViewDependencies,
+
+    storage: {
+      estimatedRows: totalEstimatedRows,
+      tablesWithRowEstimates,
+      dataLengthBytes: totalDataLengthBytes,
+      indexLengthBytes: totalIndexLengthBytes,
+      totalAllocatedDataAndIndexBytes:
+        totalDataLengthBytes + totalIndexLengthBytes,
+    },
+
     dataTypeDistribution,
     insights,
   };

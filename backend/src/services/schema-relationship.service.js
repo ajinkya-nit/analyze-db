@@ -1,9 +1,6 @@
 
 /**
- * Build a relationship graph from persisted schema metadata.
- *
- * Foreign keys are grouped by constraint so composite foreign keys
- * are represented as one relationship with multiple column mappings.
+ * Build foreign-key and view-dependency graphs.
  */
 export function buildSchemaRelationshipGraph(schemaMetadata) {
   const nodes = schemaMetadata.map((object) => ({
@@ -14,52 +11,78 @@ export function buildSchemaRelationshipGraph(schemaMetadata) {
     columnCount: object.metadata?.columns?.length ?? 0,
   }));
 
-  const relationshipGroups = new Map();
+  const foreignKeyGroups = new Map();
+  const dependencyGroups = new Map();
 
   for (const object of schemaMetadata) {
-    if (object.object_type !== 'table') {
-      continue;
-    }
+    const sourceId =
+      `${object.schema_name}.${object.object_name}`;
 
-    const foreignKeys = object.metadata?.foreignKeys ?? [];
+    if (object.object_type === 'table') {
+      for (const foreignKey of object.metadata?.foreignKeys ?? []) {
+        const groupKey = JSON.stringify([
+          object.schema_name,
+          object.object_name,
+          foreignKey.constraintName,
+          foreignKey.referencedSchema,
+          foreignKey.referencedTable,
+        ]);
 
-    for (const foreignKey of foreignKeys) {
-      const groupKey = JSON.stringify([
-        object.schema_name,
-        object.object_name,
-        foreignKey.constraintName,
-        foreignKey.referencedSchema,
-        foreignKey.referencedTable,
-      ]);
+        if (!foreignKeyGroups.has(groupKey)) {
+          foreignKeyGroups.set(groupKey, {
+            source: sourceId,
+            target:
+              `${foreignKey.referencedSchema}.${foreignKey.referencedTable}`,
+            constraintName: foreignKey.constraintName,
+            columns: [],
+            updateRule: foreignKey.updateRule,
+            deleteRule: foreignKey.deleteRule,
+          });
+        }
 
-      if (!relationshipGroups.has(groupKey)) {
-        relationshipGroups.set(groupKey, {
-          source: `${object.schema_name}.${object.object_name}`,
-          target: `${foreignKey.referencedSchema}.${foreignKey.referencedTable}`,
-          constraintName: foreignKey.constraintName,
-          columns: [],
-          updateRule: foreignKey.updateRule,
-          deleteRule: foreignKey.deleteRule,
+        foreignKeyGroups.get(groupKey).columns.push({
+          sourceColumn: foreignKey.columnName,
+          targetColumn: foreignKey.referencedColumn,
+          position: foreignKey.position,
         });
       }
+    }
 
-      relationshipGroups.get(groupKey).columns.push({
-        sourceColumn: foreignKey.columnName,
-        targetColumn: foreignKey.referencedColumn,
-        position: foreignKey.position,
-      });
+    if (object.object_type === 'view') {
+      for (const dependency of object.metadata?.viewDependencies ?? []) {
+        const targetId =
+          `${dependency.referencedSchema}.${dependency.referencedObject}`;
+
+        const groupKey = JSON.stringify([sourceId, targetId]);
+
+        if (!dependencyGroups.has(groupKey)) {
+          dependencyGroups.set(groupKey, {
+            source: sourceId,
+            target: targetId,
+            relationshipType: 'view_dependency',
+          });
+        }
+      }
     }
   }
 
-  const edges = Array.from(relationshipGroups.values());
+  const foreignKeyEdges = Array.from(foreignKeyGroups.values());
 
-  for (const edge of edges) {
+  for (const edge of foreignKeyEdges) {
     edge.columns.sort((a, b) => a.position - b.position);
   }
 
+  const viewDependencyEdges =
+    Array.from(dependencyGroups.values());
+
   const connectedNodeIds = new Set();
 
-  for (const edge of edges) {
+  for (const edge of foreignKeyEdges) {
+    connectedNodeIds.add(edge.source);
+    connectedNodeIds.add(edge.target);
+  }
+
+  for (const edge of viewDependencyEdges) {
     connectedNodeIds.add(edge.source);
     connectedNodeIds.add(edge.target);
   }
@@ -70,10 +93,15 @@ export function buildSchemaRelationshipGraph(schemaMetadata) {
 
   return {
     nodes,
-    edges,
+
+    edges: foreignKeyEdges,
+
+    viewDependencyEdges,
+
     statistics: {
       nodeCount: nodes.length,
-      relationshipCount: edges.length,
+      relationshipCount: foreignKeyEdges.length,
+      viewDependencyCount: viewDependencyEdges.length,
       isolatedNodeCount: isolatedNodes.length,
       isolatedNodes,
     },

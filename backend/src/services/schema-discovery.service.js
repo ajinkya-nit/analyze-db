@@ -15,6 +15,8 @@ import {
   discoverPrimaryKeys,
   discoverForeignKeys,
   discoverTableIndexes,
+  discoverViewDetails,
+  discoverViewDependencies,
 } from '../database/adapters/mysql-schema.adapter.js';
 
 import ApiError from '../utils/ApiError.js';
@@ -28,7 +30,6 @@ export async function discoverAndSaveSchema(
   userId,
   connectionId
 ) {
-  // 1. Verify project ownership.
   const project = await projectRepository.findProjectById(
     projectId,
     userId
@@ -38,7 +39,6 @@ export async function discoverAndSaveSchema(
     throw new ApiError(404, 'Project not found.');
   }
 
-  // 2. Retrieve the selected connection.
   const connection =
     await connectionRepository.findDatabaseConnectionById(
       connectionId,
@@ -56,7 +56,6 @@ export async function discoverAndSaveSchema(
     );
   }
 
-  // 3. Retrieve encrypted credentials.
   const credential =
     await connectionRepository.findDatabaseConnectionCredentialsById(
       connectionId,
@@ -74,10 +73,8 @@ export async function discoverAndSaveSchema(
   let externalConnection;
 
   try {
-    // 4. Decrypt the password inside the backend.
     password = decryptCredential(credential.password_encrypted);
 
-    // 5. Connect to the customer's MySQL database.
     externalConnection = await mysql.createConnection({
       host: connection.host,
       port: Number(connection.port),
@@ -88,15 +85,21 @@ export async function discoverAndSaveSchema(
       multipleStatements: false,
     });
 
-    // 6. Discover tables and views.
     const schemaObjects = await discoverSchemaObjects(
       externalConnection,
       connection.database_name
     );
 
+    // Used to identify dependencies that belong to this discovered schema.
+    const objectTypeMap = new Map(
+      schemaObjects.map((object) => [
+        `${object.schemaName}.${object.objectName}`,
+        object.objectType,
+      ])
+    );
+
     const discoveredMetadata = [];
 
-    // 7. Discover metadata for each object.
     for (const object of schemaObjects) {
       const columns = await discoverTableColumns(
         externalConnection,
@@ -107,8 +110,9 @@ export async function discoverAndSaveSchema(
       let primaryKeys = [];
       let foreignKeys = [];
       let indexes = [];
+      let viewDetails = null;
+      let viewDependencies = [];
 
-      // Views do not have table indexes or declared table constraints.
       if (object.objectType === 'table') {
         primaryKeys = await discoverPrimaryKeys(
           externalConnection,
@@ -129,34 +133,74 @@ export async function discoverAndSaveSchema(
         );
       }
 
+      if (object.objectType === 'view') {
+        viewDetails = await discoverViewDetails(
+          externalConnection,
+          connection.database_name,
+          object.objectName
+        );
+
+        const dependencies = await discoverViewDependencies(
+          externalConnection,
+          connection.database_name,
+          object.objectName
+        );
+
+        viewDependencies = dependencies.map((dependency) => ({
+          ...dependency,
+          referencedObjectType:
+            objectTypeMap.get(
+              `${dependency.referencedSchema}.${dependency.referencedObject}`
+            ) ?? null,
+        }));
+      }
+
+      const metadata = {
+        engine: 'mysql',
+        storageEngine: object.engine,
+        columns,
+        primaryKeys,
+        foreignKeys,
+        indexes,
+
+        tableDetails: object.objectType === 'table'
+          ? {
+              comment: object.tableComment,
+              estimatedRows: object.estimatedRows,
+              dataLengthBytes: object.dataLengthBytes,
+              indexLengthBytes: object.indexLengthBytes,
+              dataFreeBytes: object.dataFreeBytes,
+              autoIncrement: object.autoIncrement,
+              createdAt: object.createdAt,
+              updatedAt: object.updatedAt,
+              collation: object.collation,
+              createOptions: object.createOptions,
+            }
+          : null,
+
+        viewDetails,
+        viewDependencies,
+      };
+
       discoveredMetadata.push({
         schema_name: object.schemaName,
         object_name: object.objectName,
         object_type: object.objectType,
-        metadata: {
-          engine: 'mysql',
-          storageEngine: object.engine,
-          columns,
-          primaryKeys,
-          foreignKeys,
-          indexes,
-        },
+        metadata,
       });
     }
 
-    // 8. Save only after discovery of every object succeeds.
+    // Save only after every discovery operation succeeds.
     const snapshot =
       await schemaMetadataRepository.saveSchemaSnapshotAndReplaceMetadata(
         connectionId,
         discoveredMetadata
       );
 
-    const savedCount = snapshot.objectCount;
-
     logger.info(
       {
         connectionId,
-        objectCount: savedCount,
+        objectCount: snapshot.objectCount,
         requestOperation: 'schema_discovery',
       },
       'Database schema discovered and saved'
@@ -167,7 +211,7 @@ export async function discoverAndSaveSchema(
       databaseName: connection.database_name,
       snapshotId: snapshot.id,
       snapshotNumber: Number(snapshot.snapshot_number),
-      objectCount: savedCount,
+      objectCount: snapshot.objectCount,
       objects: discoveredMetadata.map((object) => ({
         schemaName: object.schema_name,
         objectName: object.object_name,
