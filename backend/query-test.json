@@ -1,0 +1,3 @@
+﻿{
+    "sql":  "SELECT * FROM customers WHERE email_verified = 1"
+}

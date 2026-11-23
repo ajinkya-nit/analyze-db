@@ -14,6 +14,14 @@ import {
 } from '../utils/credential-encryption.js';
 
 import {
+  generateIndexCandidates,
+} from './index-candidate.service.js';
+
+import {
+  scoreIndexCandidates,
+} from './index-scoring.service.js';
+
+import {
   explainSelectQuery,
 } from '../database/adapters/mysql-query-plan.adapter.js';
 
@@ -109,6 +117,26 @@ export async function analyzeQueryPerformance(
       schemaMetadata
     );
 
+    const indexCandidates = generateIndexCandidates({
+  advancedAnalysis,
+  schemaMetadata,
+  executionPlan: analysis,
+});
+
+const scoredIndexCandidates = scoreIndexCandidates(
+  indexCandidates
+);
+
+const indexRecommendations = {
+  candidateCount: scoredIndexCandidates.length,
+
+  recommendedCount: scoredIndexCandidates.filter(
+    (candidate) => candidate.isRecommendedForReview
+  ).length,
+
+  candidates: scoredIndexCandidates,
+};
+
     logger.info(
       {
         connectionId,
@@ -120,13 +148,17 @@ export async function analyzeQueryPerformance(
     );
 
     return {
-      databaseEngine: 'mysql',
-      databaseName: connection.database_name,
-      analysisMethod: 'EXPLAIN FORMAT=JSON',
-      queryExecuted: false,
-      executionPlan: analysis,
-      advancedIntelligence: advancedAnalysis,
-    };
+  databaseEngine: 'mysql',
+  databaseName: connection.database_name,
+  analysisMethod: 'EXPLAIN FORMAT=JSON',
+  queryExecuted: false,
+
+  executionPlan: analysis,
+
+  advancedIntelligence: advancedAnalysis,
+
+  indexRecommendations,
+};
   } catch (error) {
     logger.warn(
       {
