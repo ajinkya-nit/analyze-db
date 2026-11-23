@@ -103,12 +103,21 @@ function estimateSingletonEquality(histogram, value) {
     previousCumulative = cumulative;
   }
 
-  return {
-    selectivity: 0,
+  if (histogram.samplingRate === 1) {
+    return {
+        selectivity: 0,
+        source: 'histogram_singleton',
+        confidence: 'high',
+        method: 'value_not_present_in_complete_histogram',
+    };
+}
+
+return {
+    selectivity: null,
     source: 'histogram_singleton',
-    confidence: 'medium',
-    method: 'value_not_present_in_histogram',
-  };
+    confidence: 'low',
+    method: 'value_not_present_in_sampled_histogram',
+};
 }
 
 function estimateEquiHeightEquality(histogram, value) {
@@ -236,7 +245,8 @@ function getDistinctValueEstimate(statistics) {
     .filter((item) =>
       item.isApproximateDistinctValues === true &&
       item.approximateDistinctValues !== null &&
-      item.approximateDistinctValues !== undefined
+      item.approximateDistinctValues !== undefined &&
+      item.prefixLength === null
     )
     .map((item) => ({
       value: toFiniteNumber(item.approximateDistinctValues),

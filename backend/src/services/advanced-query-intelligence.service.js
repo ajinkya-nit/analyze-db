@@ -231,14 +231,18 @@ function buildTableAnalysis(reference, metadata, allPredicates, orderColumns, jo
     );
 
     if (!table) {
-        return {
-            tableName: reference.tableName,
-schemaName: table.schema_name,
-alias: reference.alias,
-schemaFound: true,
-            predicates: [],
-            recommendations: [],
-        };
+    return {
+        tableName: reference.tableName,
+        schemaName: reference.schemaName,
+        alias: reference.alias,
+        schemaFound: false,
+        predicates: [],
+        joins: [],
+        ordering: [],
+        columnsReferenced: [],
+        existingIndexCount: 0,
+        recommendations: [],
+    };
     }
 
     const tableColumns = table.metadata?.columns ?? [];
@@ -326,6 +330,7 @@ schemaFound: true,
 
     return {
         tableName: reference.tableName,
+        schemaName: table.schema_name,
         alias: reference.alias,
         schemaFound: true,
 
