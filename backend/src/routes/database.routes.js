@@ -16,6 +16,14 @@ import {
   verifyDatabaseConnection,
 } from '../services/database-connection.service.js';
 
+
+import {
+  getRelationships,
+  getSummary,
+  getObject,
+} from '../controllers/schema-intelligence.controller.js';
+
+
 import {
   createConnection,
   getConnections,
@@ -97,5 +105,34 @@ router.get(
   validateUuidParams('projectId', 'connectionId'),
   getSchema
 );
+
+
+/**
+ * Retrieve the schema relationship graph.
+ */
+router.get(
+  '/projects/:projectId/connections/:connectionId/schema/relationships',
+  validateUuidParams('projectId', 'connectionId'),
+  getRelationships
+);
+
+/**
+ * Retrieve the schema structural summary.
+ */
+router.get(
+  '/projects/:projectId/connections/:connectionId/schema/summary',
+  validateUuidParams('projectId', 'connectionId'),
+  getSummary
+);
+
+/**
+ * Retrieve metadata for one table or view.
+ */
+router.get(
+  '/projects/:projectId/connections/:connectionId/schema/object',
+  validateUuidParams('projectId', 'connectionId'),
+  getObject
+);
+
 
 export default router;

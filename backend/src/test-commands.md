@@ -30,4 +30,10 @@ curl -i -b cookies.txt -X PATCH \
 
 # to delete project
 
-$projectId = Read-Host "e999f47c-92dc-4231-b9cd-c4524e5dc166"
+
+# project commands
+
+$projectId = "e999f47c-92dc-4231-b9cd-c4524e5dc166"
+$connectionId = "6a880969-8cb3-48e6-b85b-a0b22f972dd8"
+
+$baseUrl = "http://localhost:3000/api/projects/$projectId/connections/$connectionId/schema"
