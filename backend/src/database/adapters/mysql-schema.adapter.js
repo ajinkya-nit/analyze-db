@@ -13,6 +13,10 @@
  * @param {string} databaseName - Customer database name.
  * @returns {Promise<object[]>} Discovered tables and views.
  */
+
+/**
+ * Discover tables and views with their structural properties.
+ */
 export async function discoverSchemaObjects(connection, databaseName) {
   if (!connection) {
     throw new TypeError('A MySQL connection is required.');
@@ -21,7 +25,7 @@ export async function discoverSchemaObjects(connection, databaseName) {
   if (
     typeof databaseName !== 'string' ||
     databaseName.trim().length === 0
-  ){
+  ) {
     throw new TypeError('A valid database name is required.');
   }
 
@@ -29,7 +33,17 @@ export async function discoverSchemaObjects(connection, databaseName) {
     `SELECT
        TABLE_NAME,
        TABLE_TYPE,
-       ENGINE
+       ENGINE,
+       TABLE_COMMENT,
+       TABLE_ROWS,
+       DATA_LENGTH,
+       INDEX_LENGTH,
+       DATA_FREE,
+       AUTO_INCREMENT,
+       CREATE_TIME,
+       UPDATE_TIME,
+       TABLE_COLLATION,
+       CREATE_OPTIONS
      FROM INFORMATION_SCHEMA.TABLES
      WHERE TABLE_SCHEMA = ?
        AND TABLE_TYPE IN ('BASE TABLE', 'VIEW')
@@ -42,6 +56,23 @@ export async function discoverSchemaObjects(connection, databaseName) {
     objectName: row.TABLE_NAME,
     objectType: row.TABLE_TYPE === 'VIEW' ? 'view' : 'table',
     engine: row.ENGINE ?? null,
+    tableComment: row.TABLE_COMMENT ?? null,
+    estimatedRows:
+      row.TABLE_TYPE === 'BASE TABLE'
+        ? row.TABLE_ROWS === null ? null : Number(row.TABLE_ROWS)
+        : null,
+    dataLengthBytes:
+      row.DATA_LENGTH === null ? null : Number(row.DATA_LENGTH),
+    indexLengthBytes:
+      row.INDEX_LENGTH === null ? null : Number(row.INDEX_LENGTH),
+    dataFreeBytes:
+      row.DATA_FREE === null ? null : Number(row.DATA_FREE),
+    autoIncrement:
+      row.AUTO_INCREMENT === null ? null : Number(row.AUTO_INCREMENT),
+    createdAt: row.CREATE_TIME ?? null,
+    updatedAt: row.UPDATE_TIME ?? null,
+    collation: row.TABLE_COLLATION ?? null,
+    createOptions: row.CREATE_OPTIONS ?? null,
   }));
 }
 
@@ -303,4 +334,103 @@ export async function discoverTableIndexes(
   }
 
   return Array.from(indexes.values());
+}
+
+
+
+/**
+ * Discover a MySQL view's definition and properties.
+ *
+ * VIEW_DEFINITION can be null when the connected user lacks
+ * sufficient privileges to see the definition.
+ */
+export async function discoverViewDetails(
+  connection,
+  databaseName,
+  viewName
+) {
+  if (!connection) {
+    throw new TypeError('A MySQL connection is required.');
+  }
+
+  if (
+    typeof databaseName !== 'string' ||
+    !databaseName.trim() ||
+    typeof viewName !== 'string' ||
+    !viewName.trim()
+  ) {
+    throw new TypeError('Valid database and view names are required.');
+  }
+
+  const [rows] = await connection.execute(
+    `SELECT
+       VIEW_DEFINITION,
+       CHECK_OPTION,
+       IS_UPDATABLE,
+       SECURITY_TYPE,
+       CHARACTER_SET_CLIENT,
+       COLLATION_CONNECTION
+     FROM INFORMATION_SCHEMA.VIEWS
+     WHERE TABLE_SCHEMA = ?
+       AND TABLE_NAME = ?`,
+    [databaseName.trim(), viewName.trim()]
+  );
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const row = rows[0];
+
+  return {
+    definition: row.VIEW_DEFINITION ?? null,
+    checkOption: row.CHECK_OPTION ?? null,
+    isUpdatable: row.IS_UPDATABLE === 'YES',
+    securityType: row.SECURITY_TYPE ?? null,
+    characterSetClient: row.CHARACTER_SET_CLIENT ?? null,
+    collationConnection: row.COLLATION_CONNECTION ?? null,
+  };
+}
+
+/**
+ * Discover the tables and views referenced by a view.
+ *
+ * These dependencies are distinct from declared foreign keys.
+ */
+export async function discoverViewDependencies(
+  connection,
+  databaseName,
+  viewName
+) {
+  if (!connection) {
+    throw new TypeError('A MySQL connection is required.');
+  }
+
+  if (
+    typeof databaseName !== 'string' ||
+    !databaseName.trim() ||
+    typeof viewName !== 'string' ||
+    !viewName.trim()
+  ) {
+    throw new TypeError('Valid database and view names are required.');
+  }
+
+  const [rows] = await connection.execute(
+    `SELECT
+       VIEW_SCHEMA,
+       VIEW_NAME,
+       TABLE_SCHEMA,
+       TABLE_NAME
+     FROM INFORMATION_SCHEMA.VIEW_TABLE_USAGE
+     WHERE VIEW_SCHEMA = ?
+       AND VIEW_NAME = ?
+     ORDER BY TABLE_SCHEMA, TABLE_NAME`,
+    [databaseName.trim(), viewName.trim()]
+  );
+
+  return rows.map((row) => ({
+    referencedSchema: row.TABLE_SCHEMA,
+    referencedObject: row.TABLE_NAME,
+    referencedObjectType: null,
+  }));
 }
