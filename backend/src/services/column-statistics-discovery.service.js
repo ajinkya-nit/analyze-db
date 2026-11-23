@@ -5,7 +5,6 @@ import {
 const DEFAULT_OPTIONS = Object.freeze({
   includeExactNullCounts: false,
   maxExactNullCountColumns: 0,
-  maxHistogramBuckets: 100,
 });
 
 /**
@@ -45,11 +44,6 @@ export function getColumnStatisticsOptions(overrides = {}) {
       overrides.maxExactNullCountColumns ??
         process.env.SCHEMA_STATISTICS_MAX_EXACT_NULL_COUNT_COLUMNS,
       DEFAULT_OPTIONS.maxExactNullCountColumns
-    ),
-    maxHistogramBuckets: parseNonNegativeInteger(
-      overrides.maxHistogramBuckets ??
-        process.env.SCHEMA_STATISTICS_MAX_HISTOGRAM_BUCKETS,
-      DEFAULT_OPTIONS.maxHistogramBuckets
     ),
   };
 }

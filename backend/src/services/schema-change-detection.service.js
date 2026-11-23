@@ -18,7 +18,12 @@ function stableStringify(value) {
   return JSON.stringify(value);
 }
 
-function compareCollection(beforeItems, afterItems, getKey) {
+function compareCollection(
+  beforeItems,
+  afterItems,
+  getKey,
+  getStructuralValue = (item) => item
+) {
   const beforeMap = new Map(
     beforeItems.map((item) => [getKey(item), item])
   );
@@ -39,7 +44,10 @@ function compareCollection(beforeItems, afterItems, getKey) {
 
     const before = beforeMap.get(key);
 
-    if (stableStringify(before) !== stableStringify(after)) {
+    if (
+      stableStringify(getStructuralValue(before)) !==
+      stableStringify(getStructuralValue(after))
+    ) {
       modified.push({
         key,
         before,
@@ -55,6 +63,41 @@ function compareCollection(beforeItems, afterItems, getKey) {
   }
 
   return { added, removed, modified };
+}
+
+/**
+ * Remove optimizer statistics before comparing snapshots structurally. These
+ * values are intentionally persisted for query intelligence but refresh as
+ * data changes, without any table-definition change.
+ */
+function toStructuralSchemaObject(object) {
+  if (!object.metadata) {
+    return object;
+  }
+
+  const {
+    columnStatistics: _columnStatistics,
+    indexes = [],
+    ...metadata
+  } = object.metadata;
+
+  return {
+    ...object,
+    metadata: {
+      ...metadata,
+      indexes: indexes.map(toStructuralIndex),
+    },
+  };
+}
+
+function toStructuralIndex(index) {
+  return {
+    ...index,
+    columns: (index.columns ?? []).map((column) => {
+      const { cardinality: _cardinality, ...structuralColumn } = column;
+      return structuralColumn;
+    }),
+  };
 }
 
 
@@ -110,7 +153,8 @@ function compareObjectDetails(beforeObject, afterObject) {
     indexes: compareCollection(
       beforeMetadata.indexes ?? [],
       afterMetadata.indexes ?? [],
-      (item) => item.indexName
+      (item) => item.indexName,
+      toStructuralIndex
     ),
 
     tableProperties: compareProperties(
@@ -146,7 +190,8 @@ export function detectSchemaChanges(
     beforeObjects,
     afterObjects,
     (item) =>
-      `${item.schema_name}.${item.object_name}`
+      `${item.schema_name}.${item.object_name}`,
+    toStructuralSchemaObject
   );
 
   const addedObjects = objectChanges.added.map((item) => ({

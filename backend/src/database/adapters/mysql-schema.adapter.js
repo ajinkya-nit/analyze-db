@@ -355,7 +355,6 @@ export async function discoverTableIndexes(
  * @param {number|null} [options.estimatedRowCount] - TABLES.TABLE_ROWS value.
  * @param {boolean} [options.includeExactNullCounts=false]
  * @param {number} [options.maxExactNullCountColumns=0]
- * @param {number} [options.maxHistogramBuckets=100]
  * @returns {Promise<object[]>} Column statistics, one item per discovered column.
  */
 export async function discoverTableColumnStatistics(
@@ -376,17 +375,11 @@ export async function discoverTableColumnStatistics(
   const exactNullCountLimit = options.includeExactNullCounts === true
     ? toNonNegativeInteger(options.maxExactNullCountColumns, 0)
     : 0;
-  const maxHistogramBuckets = toNonNegativeInteger(
-    options.maxHistogramBuckets,
-    100
-  );
-
   const indexStatisticsByColumn = buildIndexStatisticsByColumn(indexes);
   const histogramResult = await discoverColumnHistograms(
     connection,
     databaseName,
-    tableName,
-    maxHistogramBuckets
+    tableName
   );
 
   const statistics = columns.map((column) => {
@@ -461,11 +454,28 @@ function buildIndexStatisticsByColumn(indexes) {
       }
 
       const statistics = statisticsByColumn.get(column.columnName) ?? [];
+      const indexPrefixCardinality = toNullableNumber(
+        column.cardinality
+      );
+      const isLeadingIndexPart = column.position === 1;
+
       statistics.push({
         indexName: index.indexName,
         indexType: index.indexType ?? null,
         indexPosition: column.position,
-        cardinality: toNullableNumber(column.cardinality),
+        // MySQL reports a cardinality for each index prefix. A non-leading
+        // part of a composite index is not a distinct-value estimate for that
+        // column by itself.
+        indexPrefixCardinality,
+        approximateDistinctValues: isLeadingIndexPart
+          ? indexPrefixCardinality
+          : null,
+        isApproximateDistinctValues:
+          isLeadingIndexPart && indexPrefixCardinality !== null,
+        approximateDistinctValuesSource: isLeadingIndexPart &&
+          indexPrefixCardinality !== null
+          ? 'first_index_part_cardinality'
+          : null,
         isUnique: index.isUnique === true,
         isPrimary: index.isPrimary === true,
         prefixLength: column.prefixLength ?? null,
@@ -480,8 +490,7 @@ function buildIndexStatisticsByColumn(indexes) {
 async function discoverColumnHistograms(
   connection,
   databaseName,
-  tableName,
-  maxHistogramBuckets
+  tableName
 ) {
   try {
     const [rows] = await connection.execute(
@@ -496,7 +505,7 @@ async function discoverColumnHistograms(
     const histograms = new Map(
       rows.map((row) => [
         row.COLUMN_NAME,
-        normalizeHistogram(row.HISTOGRAM, maxHistogramBuckets),
+        normalizeHistogram(row.HISTOGRAM),
       ])
     );
 
@@ -516,7 +525,7 @@ async function discoverColumnHistograms(
   }
 }
 
-function normalizeHistogram(rawHistogram, maxHistogramBuckets) {
+function normalizeHistogram(rawHistogram) {
   const histogram = parseJsonValue(rawHistogram);
 
   if (!histogram || typeof histogram !== 'object') {
@@ -529,7 +538,6 @@ function normalizeHistogram(rawHistogram, maxHistogramBuckets) {
   const buckets = Array.isArray(histogram.buckets)
     ? histogram.buckets
     : [];
-  const storedBuckets = buckets.slice(0, maxHistogramBuckets);
 
   return {
     status: 'available',
@@ -541,8 +549,9 @@ function normalizeHistogram(rawHistogram, maxHistogramBuckets) {
     nullValuesFraction: toNullableNumber(histogram['null-values']),
     lastUpdated: histogram['last-updated'] ?? null,
     bucketCount: buckets.length,
-    buckets: storedBuckets,
-    bucketsTruncated: storedBuckets.length < buckets.length,
+    // MySQL limits histograms to 1,024 buckets. Persist the full distribution
+    // so downstream selectivity analysis never runs on a partial histogram.
+    buckets,
   };
 }
 
