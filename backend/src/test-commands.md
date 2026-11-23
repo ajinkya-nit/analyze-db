@@ -9,6 +9,9 @@ curl -i -X POST http://localhost:3000/api/auth/sign-up/email \
   }' \
   -c cookies.txt
 
+# check authentication
+
+curl.exe -i -b ".\cookies.txt" "$baseUrl/api/me"
 
 # to create project
 

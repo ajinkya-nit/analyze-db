@@ -457,7 +457,7 @@ function buildIndexStatisticsByColumn(indexes) {
       const indexPrefixCardinality = toNullableNumber(
         column.cardinality
       );
-      const isLeadingIndexPart = column.position === 1;
+      const isLeadingIndexPart = Number(column.position) === 1;
 
       statistics.push({
         indexName: index.indexName,
