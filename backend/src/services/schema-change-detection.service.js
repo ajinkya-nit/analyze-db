@@ -146,18 +146,36 @@ export function detectSchemaChanges(
     modifiedIndexes: 0,
   };
 
+  const countKeys = {
+    columns: {
+      added: 'addedColumns',
+      removed: 'removedColumns',
+      modified: 'modifiedColumns',
+    },
+    primaryKeys: {
+      added: 'addedPrimaryKeys',
+      removed: 'removedPrimaryKeys',
+      modified: 'modifiedPrimaryKeys',
+    },
+    foreignKeys: {
+      added: 'addedForeignKeys',
+      removed: 'removedForeignKeys',
+      modified: 'modifiedForeignKeys',
+    },
+    indexes: {
+      added: 'addedIndexes',
+      removed: 'removedIndexes',
+      modified: 'modifiedIndexes',
+    },
+  };
+
   for (const object of modifiedObjects) {
     for (const [section, changes] of Object.entries(object.changes)) {
-      const prefix = {
-        columns: 'Column',
-        primaryKeys: 'PrimaryKey',
-        foreignKeys: 'ForeignKey',
-        indexes: 'Index',
-      }[section];
+      const keys = countKeys[section];
 
-      counts[`added${prefix}s`] += changes.added.length;
-      counts[`removed${prefix}s`] += changes.removed.length;
-      counts[`modified${prefix}s`] += changes.modified.length;
+      counts[keys.added] += changes.added.length;
+      counts[keys.removed] += changes.removed.length;
+      counts[keys.modified] += changes.modified.length;
     }
   }
 
