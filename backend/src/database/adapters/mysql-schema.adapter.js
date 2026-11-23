@@ -292,6 +292,7 @@ export async function discoverTableIndexes(
        COLLATION,
        SUB_PART,
        INDEX_TYPE,
+       CARDINALITY,
        COMMENT,
        INDEX_COMMENT,
        IS_VISIBLE,
@@ -330,10 +331,280 @@ export async function discoverTableIndexes(
             ? 'DESC'
             : null,
       prefixLength: row.SUB_PART ?? null,
+      cardinality: toNullableNumber(row.CARDINALITY),
     });
   }
 
   return Array.from(indexes.values());
+}
+
+/**
+ * Discover lightweight, persisted optimizer statistics for a table's columns.
+ *
+ * Index cardinality comes from INFORMATION_SCHEMA.STATISTICS. Histogram data is
+ * read only when the server exposes INFORMATION_SCHEMA.COLUMN_STATISTICS; it is
+ * never generated or refreshed by AnalyzeDB. Exact null counts are deliberately
+ * opt-in because each one requires a table scan.
+ *
+ * @param {object} connection - Active mysql2 promise connection.
+ * @param {string} databaseName - Customer database name.
+ * @param {string} tableName - Table name.
+ * @param {object} [options]
+ * @param {object[]} [options.columns] - Already discovered table columns.
+ * @param {object[]} [options.indexes] - Already discovered table indexes.
+ * @param {number|null} [options.estimatedRowCount] - TABLES.TABLE_ROWS value.
+ * @param {boolean} [options.includeExactNullCounts=false]
+ * @param {number} [options.maxExactNullCountColumns=0]
+ * @param {number} [options.maxHistogramBuckets=100]
+ * @returns {Promise<object[]>} Column statistics, one item per discovered column.
+ */
+export async function discoverTableColumnStatistics(
+  connection,
+  databaseName,
+  tableName,
+  options = {}
+) {
+  assertMySqlTableTarget(connection, databaseName, tableName);
+
+  const columns = Array.isArray(options.columns)
+    ? options.columns
+    : await discoverTableColumns(connection, databaseName, tableName);
+  const indexes = Array.isArray(options.indexes)
+    ? options.indexes
+    : await discoverTableIndexes(connection, databaseName, tableName);
+  const estimatedRowCount = toNullableNumber(options.estimatedRowCount);
+  const exactNullCountLimit = options.includeExactNullCounts === true
+    ? toNonNegativeInteger(options.maxExactNullCountColumns, 0)
+    : 0;
+  const maxHistogramBuckets = toNonNegativeInteger(
+    options.maxHistogramBuckets,
+    100
+  );
+
+  const indexStatisticsByColumn = buildIndexStatisticsByColumn(indexes);
+  const histogramResult = await discoverColumnHistograms(
+    connection,
+    databaseName,
+    tableName,
+    maxHistogramBuckets
+  );
+
+  const statistics = columns.map((column) => {
+    const indexStatistics =
+      indexStatisticsByColumn.get(column.columnName) ?? [];
+    const histogram = histogramResult.histograms.get(column.columnName);
+    const canContainNulls = column.isNullable === true;
+
+    return {
+      columnName: column.columnName,
+      estimatedTableRows: estimatedRowCount,
+      indexCardinality: indexStatistics,
+      histogram: histogram ?? {
+        status: histogramResult.status,
+        buckets: null,
+      },
+      nullCount: canContainNulls ? null : 0,
+      nullCountStatus: !canContainNulls
+        ? 'known_non_nullable'
+        : exactNullCountLimit > 0
+          ? 'not_collected_due_to_limit'
+          : 'not_collected_in_lightweight_mode',
+    };
+  });
+
+  if (exactNullCountLimit === 0) {
+    return statistics;
+  }
+
+  const nullableStatistics = statistics.filter(
+    (statistic) => statistic.nullCountStatus !== 'known_non_nullable'
+  );
+
+  for (const statistic of nullableStatistics.slice(
+    0,
+    exactNullCountLimit
+  )) {
+    statistic.nullCount = await discoverExactNullCount(
+      connection,
+      databaseName,
+      tableName,
+      statistic.columnName
+    );
+    statistic.nullCountStatus = 'exact';
+  }
+
+  return statistics;
+}
+
+function assertMySqlTableTarget(connection, databaseName, tableName) {
+  if (!connection) {
+    throw new TypeError('A MySQL connection is required.');
+  }
+
+  if (
+    typeof databaseName !== 'string' ||
+    databaseName.trim().length === 0 ||
+    typeof tableName !== 'string' ||
+    tableName.trim().length === 0
+  ) {
+    throw new TypeError('Valid database and table names are required.');
+  }
+}
+
+function buildIndexStatisticsByColumn(indexes) {
+  const statisticsByColumn = new Map();
+
+  for (const index of indexes) {
+    for (const column of index.columns ?? []) {
+      if (!column.columnName) {
+        continue;
+      }
+
+      const statistics = statisticsByColumn.get(column.columnName) ?? [];
+      statistics.push({
+        indexName: index.indexName,
+        indexType: index.indexType ?? null,
+        indexPosition: column.position,
+        cardinality: toNullableNumber(column.cardinality),
+        isUnique: index.isUnique === true,
+        isPrimary: index.isPrimary === true,
+        prefixLength: column.prefixLength ?? null,
+      });
+      statisticsByColumn.set(column.columnName, statistics);
+    }
+  }
+
+  return statisticsByColumn;
+}
+
+async function discoverColumnHistograms(
+  connection,
+  databaseName,
+  tableName,
+  maxHistogramBuckets
+) {
+  try {
+    const [rows] = await connection.execute(
+      `SELECT COLUMN_NAME, HISTOGRAM
+       FROM INFORMATION_SCHEMA.COLUMN_STATISTICS
+       WHERE SCHEMA_NAME = ?
+         AND TABLE_NAME = ?
+       ORDER BY COLUMN_NAME`,
+      [databaseName.trim(), tableName.trim()]
+    );
+
+    const histograms = new Map(
+      rows.map((row) => [
+        row.COLUMN_NAME,
+        normalizeHistogram(row.HISTOGRAM, maxHistogramBuckets),
+      ])
+    );
+
+    return {
+      status: 'not_available',
+      histograms,
+    };
+  } catch (error) {
+    if (!isOptionalHistogramSourceError(error)) {
+      throw error;
+    }
+
+    return {
+      status: 'unavailable',
+      histograms: new Map(),
+    };
+  }
+}
+
+function normalizeHistogram(rawHistogram, maxHistogramBuckets) {
+  const histogram = parseJsonValue(rawHistogram);
+
+  if (!histogram || typeof histogram !== 'object') {
+    return {
+      status: 'unavailable',
+      buckets: null,
+    };
+  }
+
+  const buckets = Array.isArray(histogram.buckets)
+    ? histogram.buckets
+    : [];
+  const storedBuckets = buckets.slice(0, maxHistogramBuckets);
+
+  return {
+    status: 'available',
+    dataType: histogram['data-type'] ?? null,
+    histogramType: histogram['histogram-type'] ?? null,
+    numberOfBucketsSpecified:
+      toNullableNumber(histogram['number-of-buckets-specified']),
+    samplingRate: toNullableNumber(histogram['sampling-rate']),
+    nullValuesFraction: toNullableNumber(histogram['null-values']),
+    lastUpdated: histogram['last-updated'] ?? null,
+    bucketCount: buckets.length,
+    buckets: storedBuckets,
+    bucketsTruncated: storedBuckets.length < buckets.length,
+  };
+}
+
+function parseJsonValue(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  if (typeof value === 'object') {
+    return value;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function isOptionalHistogramSourceError(error) {
+  return [
+    'ER_NO_SUCH_TABLE',
+    'ER_BAD_TABLE_ERROR',
+    'ER_TABLEACCESS_DENIED_ERROR',
+    'ER_DBACCESS_DENIED_ERROR',
+    'ER_SPECIFIC_ACCESS_DENIED_ERROR',
+  ].includes(error?.code) || error?.sqlState === '42S02';
+}
+
+async function discoverExactNullCount(
+  connection,
+  databaseName,
+  tableName,
+  columnName
+) {
+  const databaseIdentifier = quoteIdentifier(databaseName.trim());
+  const tableIdentifier = quoteIdentifier(tableName.trim());
+  const columnIdentifier = quoteIdentifier(columnName);
+  const [rows] = await connection.query(
+    `SELECT COUNT(*) - COUNT(${columnIdentifier}) AS null_count
+     FROM ${databaseIdentifier}.${tableIdentifier}`
+  );
+
+  return toNullableNumber(rows[0]?.null_count);
+}
+
+function quoteIdentifier(identifier) {
+  return `\`${String(identifier).replaceAll('`', '``')}\``;
+}
+
+function toNullableNumber(value) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function toNonNegativeInteger(value, fallback) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 ? number : fallback;
 }
 
 

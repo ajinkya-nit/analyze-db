@@ -19,6 +19,10 @@ import {
   discoverViewDependencies,
 } from '../database/adapters/mysql-schema.adapter.js';
 
+import {
+  discoverColumnStatistics,
+} from './column-statistics-discovery.service.js';
+
 import ApiError from '../utils/ApiError.js';
 import logger from '../config/logger.js';
 
@@ -133,6 +137,19 @@ export async function discoverAndSaveSchema(
         );
       }
 
+      const columnStatistics = object.objectType === 'table'
+        ? await discoverColumnStatistics(
+            externalConnection,
+            connection.database_name,
+            object.objectName,
+            {
+              columns,
+              indexes,
+              estimatedRowCount: object.estimatedRows,
+            }
+          )
+        : [];
+
       if (object.objectType === 'view') {
         viewDetails = await discoverViewDetails(
           externalConnection,
@@ -162,6 +179,7 @@ export async function discoverAndSaveSchema(
         primaryKeys,
         foreignKeys,
         indexes,
+        columnStatistics,
 
         tableDetails: object.objectType === 'table'
           ? {
